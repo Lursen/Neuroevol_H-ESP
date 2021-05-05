@@ -17,6 +17,8 @@ const int neuralNetN = 5; //нейронных сетей
 const int inputN = 9; //число входнных нейронов
 const int outputN = 2; //число выходных нейронов 
 
+const double mutRate = 0.1; // частота мутаций
+
 double activationFunction(double S)
 {
     // Функция активации
@@ -38,6 +40,55 @@ double EvaluateFitness(double error)
     return error;
 }
 
+double CauchyDistr(double x)
+{
+    // распределение Коши при a=1
+    return 1.0/(3.14 * (1 + x*x));
+}
+
+void mutate(double* chromosomeWeights, int subPopulation, int neuron)
+{
+    // количество генов хромосомы
+    int l = inputN + outputN + 1;
+
+    if (((double)rand() / (RAND_MAX)) < mutRate)
+    {
+        int gene = rand() % (l);
+
+            //chrW[subPopulation][neuron][gene] 
+            *(chromosomeWeights + subPopulation * speciesN * l + neuron * l + gene) += CauchyDistr(rand());
+    }
+}
+
+void crossover(double* chromosomeWeights, int subPopulation, int fNeuron, int sNeuron, int fdNeuron, int sdNeuron)
+{
+    // количество генов хромосомы
+    int l = inputN + outputN + 1;
+    // точка разрыва между генами 
+    int crosspoint = rand() % (l);
+
+    for (int k = 0; k < l; k++)
+    {
+        if (k < crosspoint)
+        {
+            //значения генов (веса)
+            for (int k = 0; k < l; k++)
+            {
+                //chrW[subPopulation][fdNeuron][k] = chrW[subPopulation][fNeuron][k]
+                *(chromosomeWeights + subPopulation * speciesN * l + fdNeuron * l + k) = *(chromosomeWeights + subPopulation * speciesN * inputN + fNeuron * inputN + k);
+            }
+        }
+        else 
+        {
+            //значения генов (веса)
+            for (int k = 0; k < l; k++)
+            {
+                //chrW[subPopulation][sdNeuron][k] = chrW[subPopulation][sNeuron][k]
+                *(chromosomeWeights + subPopulation * speciesN * l + sdNeuron * l + k) = *(chromosomeWeights + subPopulation * speciesN * inputN + sNeuron * inputN + k);
+            }
+        }
+    }
+}
 
 // метод для пропуска данных через сеть
 double EvaluateNet(double* neuralNetInput, double* neuralNetOutput, double* neuralNetHiddenInputW, double* neuralNetHiddenOutputW, double* neuralNetHiddenBias, bool CorrectOutput)
@@ -104,6 +155,8 @@ int main()
     double* chromosomeOutputW = new double[subpopulationsN * speciesN * outputN];
     double* chromosomeBias =    new double[subpopulationsN * speciesN];
     double* chromosomeNeuronFitness = new double[subpopulationsN * speciesN];
+    // массив для хранения генов хромосом сабпопуляций (вх + вых + bias)
+    double* chromosomeWeights = new double[subpopulationsN * speciesN * (inputN+outputN+1)];
 
     //инициализация хромосом
     //подпопуляции
@@ -112,18 +165,13 @@ int main()
         //особи (нейроны)
         for (int j = 0; j < speciesN; j++)
         {
-            //значения хромосом (веса)
-            for (int k = 0; k < inputN; k++)
+            for (int k = 0; k < (inputN + outputN + 1); k++)
             {
-                *(chromosomeInputW + i * speciesN * inputN + j * inputN + k) = ((double)rand() / (RAND_MAX));
+                //chrW[i][j][k] = rand
+                *(chromosomeWeights + i * speciesN * (inputN + outputN + 1) + j * (inputN + outputN + 1) + k) = ((double)rand() / (RAND_MAX));
             }
-            for (int k = 0; k < outputN; k++)
-            {
-                *(chromosomeOutputW + i * speciesN * inputN + j * inputN + k) = ((double)rand() / (RAND_MAX));
-            }
-            
-            *(chromosomeBias + i*speciesN + j) = ((double)rand() / (RAND_MAX));
-            *(chromosomeNeuronFitness + i*speciesN + j) = 0;
+
+            *(chromosomeNeuronFitness + i * speciesN + j) = 0;
         }
     }
 
@@ -174,116 +222,216 @@ int main()
     double current_fitness = 0;
     int noImprovements = 0;
     int chosenNeurons[subpopulationsN] = {0};
+	//буфер для сортировки
+	vector<pair<int, int> > vp;
 
-while (best_fitness < goal_fitness)
-{
-// Evaluation 
-    // Trials (Neuron Level)
-    for (int trial = 0; trial < hiddenNeuronsN * 10; trial++)
+    while (best_fitness < goal_fitness)
     {
-    //создаём случайную сеть
-        //Проходим по подпопуляциям/нейронам в создаваемой сети
-        for (int i = 0; i < subpopulationsN; i++)
+    // Evaluation 
+        // Trials (Neuron Level)
+        for (int trial = 0; trial < hiddenNeuronsN * 10; trial++)
         {
-            int j = rand()%hiddenNeuronsN;
-            chosenNeurons[i] = j;
-            // neuron inputs
-            for (int k = 0; k < inputN; k++)
+        //создаём случайную сеть
+            //Проходим по подпопуляциям/нейронам в создаваемой сети
+            for (int i = 0; i < subpopulationsN; i++)
             {
-                *(TRneuralNetHiddenInputW + i * inputN + k) = *(chromosomeInputW + i * speciesN * inputN + j * inputN + k); 
-                // NNinput[i][k] = ChromInput[i][j][k]
-            }
-            // neuron outputs
-            for (int k = 0; k < outputN; k++)
-            {
-                *(TRneuralNetHiddenOutputW + i * outputN + k) = *(chromosomeOutputW + i * speciesN * inputN + j * outputN + k);
-                // NNoutput[i][k] = ChromOutput[i][j][k]
-            }
-            // neuron bias
-            TRneuralNetHiddenBias[i] = *(chromosomeBias + i * inputN + j);
-            // NNbias[i] = ChromBias[i][j];
-        }
-
-        // подготовка и пропуск данных через нейронную сеть
-        bool CorrectOutput = PrepareTrainingData(TRneuralNetInput);
-        current_fitness = EvaluateNet(TRneuralNetInput, TRneuralNetOutput, TRneuralNetHiddenInputW, TRneuralNetHiddenOutputW, TRneuralNetHiddenBias, CorrectOutput);
-
-        // подсчёт приспосабливаемости
-        for (int i = 0; i < subpopulationsN; i++)
-        {
-            *(chromosomeNeuronFitness + i * speciesN + chosenNeurons[i]) += current_fitness;
-            // chromFitness[i][chosenNeurons[i]]
-        }
-
-        // сохраняем лучшее значение приспосабливаемости
-        if (current_fitness > best_fitness)
-        {
-            best_fitness = current_fitness;
-            noImprovements = 0;
-        }
-        else
-        {
-            noImprovements++;
-        }
-
-    // сравнение сети с L2
-        vector<pair<int, int> > vp;
-        vp.clear();
-        // сохраняем fitness с индексом после сортировки
-        for (int i = 0; i < neuralNetN; ++i)
-        {
-            vp.push_back(make_pair(NNLneuralnetFitness[i], i));
-        }
-
-        sort(vp.begin(), vp.end());
-
-        // если полученная сеть лучше худшей из L2
-        if (current_fitness > vp[0].first)
-        {
-            // заменяем худшую сеть из L2 на полученную
-            NNLneuralnetFitness[vp[0].second] = current_fitness;
-
-            for (int j = 0; j < hiddenNeuronsN; j++)
-            {
+                int j = rand()%hiddenNeuronsN;
+                chosenNeurons[i] = j;
+                // neuron inputs
                 for (int k = 0; k < inputN; k++)
                 {
-                    //NNL[vp[0].second][j][k]=TR[j][k]
-                    *(NNLneuralNetHiddenInputW + vp[0].second * hiddenNeuronsN * inputN + j * inputN + k) = *(TRneuralNetHiddenInputW + j * inputN + k);
+                    *(TRneuralNetHiddenInputW + i * inputN + k) = *(chromosomeInputW + i * speciesN * inputN + j * inputN + k); 
+                    // NNinput[i][k] = ChromInput[i][j][k]
                 }
+                // neuron outputs
                 for (int k = 0; k < outputN; k++)
                 {
-                    //NNL[vp[0].second][j][k]=TR[j][k]
-                    *(NNLneuralNetHiddenOutputW + vp[0].second * hiddenNeuronsN * outputN + j * inputN + k) = *(TRneuralNetHiddenOutputW + j * outputN + k);
+                    *(TRneuralNetHiddenOutputW + i * outputN + k) = *(chromosomeOutputW + i * speciesN * inputN + j * outputN + k);
+                    // NNoutput[i][k] = ChromOutput[i][j][k]
                 }
                 // neuron bias
-                *(NNLneuralNetHiddenBias + vp[0].second * hiddenNeuronsN + j) = TRneuralNetHiddenBias[j];
-                // NNbias[vp[0].second][j] = TTRbias[j];
+                TRneuralNetHiddenBias[i] = *(chromosomeBias + i * inputN + j);
+                // NNbias[i] = ChromBias[i][j];
             }
-        }
 
-     // проверка на стагнацию?
-        if (noImprovements > 5)
+            // подготовка и пропуск данных через нейронную сеть
+            bool CorrectOutput = PrepareTrainingData(TRneuralNetInput);
+            current_fitness = EvaluateNet(TRneuralNetInput, TRneuralNetOutput, TRneuralNetHiddenInputW, TRneuralNetHiddenOutputW, TRneuralNetHiddenBias, CorrectOutput);
+
+            // подсчёт приспосабливаемости
+            for (int i = 0; i < subpopulationsN; i++)
+            {
+                *(chromosomeNeuronFitness + i * speciesN + chosenNeurons[i]) += current_fitness;
+                // chromFitness[i][chosenNeurons[i]]
+            }
+
+            // сохраняем лучшее значение приспосабливаемости
+            if (current_fitness > best_fitness)
+            {
+                best_fitness = current_fitness;
+                noImprovements = 0;
+            }
+            else
+            {
+                noImprovements++;
+            }
+
+        // сравнение сети с L2
+            vp.clear();
+            // сохраняем fitness с индексом после сортировки
+            for (int i = 0; i < neuralNetN; ++i)
+            {
+                vp.push_back(make_pair(NNLneuralnetFitness[i], i));
+            }
+
+            sort(vp.begin(), vp.end());
+
+            // если полученная сеть лучше худшей из L2
+            if (current_fitness > vp[0].first)
+            {
+                // заменяем худшую сеть из L2 на полученную
+                NNLneuralnetFitness[vp[0].second] = current_fitness;
+
+                for (int j = 0; j < hiddenNeuronsN; j++)
+                {
+                    for (int k = 0; k < inputN; k++)
+                    {
+                        //NNL[vp[0].second][j][k]=TR[j][k]
+                        *(NNLneuralNetHiddenInputW + vp[0].second * hiddenNeuronsN * inputN + j * inputN + k) = *(TRneuralNetHiddenInputW + j * inputN + k);
+                    }
+                    for (int k = 0; k < outputN; k++)
+                    {
+                        //NNL[vp[0].second][j][k]=TR[j][k]
+                        *(NNLneuralNetHiddenOutputW + vp[0].second * hiddenNeuronsN * outputN + j * inputN + k) = *(TRneuralNetHiddenOutputW + j * outputN + k);
+                    }
+                    // neuron bias
+                    *(NNLneuralNetHiddenBias + vp[0].second * hiddenNeuronsN + j) = TRneuralNetHiddenBias[j];
+                    // NNbias[vp[0].second][j] = TTRbias[j];
+                }
+            }
+
+         // проверка на стагнацию?
+            if (noImprovements > 5)
+            {
+                // DO STUFF
+                // idk if it's necessarry
+            }
+
+        } // the end of trials
+
+    // Neural Net Level 
+        // вычисление приспособленности
+        for (int i = 0; i < neuralNetN; i++)
         {
-            // DO STUFF
-            // idk if it's necessarry
+            // подготовка и пропуск данных через нейронную сеть
+            bool CorrectOutput = PrepareTrainingData(NNLneuralNetInput);
+            NNLneuralnetFitness[i] = EvaluateNet(NNLneuralNetInput, NNLneuralNetOutput, NNLneuralNetHiddenInputW, NNLneuralNetHiddenOutputW, NNLneuralNetHiddenBias, CorrectOutput);
         }
 
-    } // the end of trials
+	    // сохраняем fitness с индексом после сортировки
+	    for (int i = 0; i < neuralNetN; ++i)
+	    {
+		    vp.push_back(make_pair(NNLneuralnetFitness[i], i));
+	    }
 
-// Neural Net Level 
-    // вычисление приспособленности
-    for (int i = 0; i < neuralNetN; i++)
-    {
-        // подготовка и пропуск данных через нейронную сеть
-        bool CorrectOutput = PrepareTrainingData(NNLneuralNetInput);
-        NNLneuralnetFitness[i] = EvaluateNet(NNLneuralNetInput, NNLneuralNetOutput, NNLneuralNetHiddenInputW, NNLneuralNetHiddenOutputW, NNLneuralNetHiddenBias, CorrectOutput);
+    //создание сети из лучших нейронов L1
+	    //сортировка по приспособленности
+	    for (int i = 0; i < subpopulationsN; i++)
+	    {
+		    vp.clear();
+		    for (int j = 0; j < speciesN; j++)
+		    {
+			    vp.push_back(make_pair(*(chromosomeNeuronFitness + i * speciesN + j), j));
+			    //vp.push(chrFitn[i][j],j)
+		    }
+		    sort(vp.begin(), vp.end());
+
+		    chosenNeurons[i] = vp[0].second;
+		    int j = chosenNeurons[i];
+		    // инициализация сети
+		      // neuron inputs
+		    for (int k = 0; k < inputN; k++)
+		    {
+			    *(TRneuralNetHiddenInputW + i * inputN + k) = *(chromosomeInputW + i * speciesN * inputN + j * inputN + k); 
+			    // NNinput[i][k] = ChromInput[i][j][k]
+		    }
+			    // neuron outputs
+		    for (int k = 0; k < outputN; k++)
+		    {
+			    *(TRneuralNetHiddenOutputW + i * outputN + k) = *(chromosomeOutputW + i * speciesN * inputN + j * outputN + k);
+			    // NNoutput[i][k] = ChromOutput[i][j][k]
+		    }
+			    // neuron bias
+		    TRneuralNetHiddenBias[i] = *(chromosomeBias + i * inputN + j);
+			    // NNbias[i] = ChromBias[i][j];
+	    }
+	
+	    // подсчёт приспособленности
+	    bool CorrectOutput = PrepareTrainingData(TRneuralNetInput);
+	    current_fitness = EvaluateNet(TRneuralNetInput, TRneuralNetOutput, TRneuralNetHiddenInputW, TRneuralNetHiddenOutputW, TRneuralNetHiddenBias, CorrectOutput);
+    //создание сети из лучших нейронов L1
+
+    // сравнение сетей L2 с сетью L1
+            vp.clear();
+            // сохраняем fitness с индексом после сортировки
+            for (int i = 0; i < neuralNetN; ++i)
+            {
+                vp.push_back(make_pair(NNLneuralnetFitness[i], i));
+            }
+
+            sort(vp.begin(), vp.end());
+
+            // если лучшая сеть L2 лучше лучшей из L1
+            if (current_fitness > vp[neuralNetN].first)
+            {
+                // заменяем нейроны L1 на нейроны L2
+			    for (int i = 0; i < subpopulationsN; i++)
+			    {
+				    int j = chosenNeurons[i];
+	
+				    //значения хромосом (веса)
+				    for (int k = 0; k < inputN; k++)
+				    {
+					    *(chromosomeInputW + i * speciesN * inputN + j * inputN + k) = ((double)rand() / (RAND_MAX));
+				    }
+				    for (int k = 0; k < outputN; k++)
+				    {
+					    *(chromosomeOutputW + i * speciesN * inputN + j * inputN + k) = ((double)rand() / (RAND_MAX));
+				    }
+				
+				    *(chromosomeBias + i*speciesN + j) = ((double)rand() / (RAND_MAX));
+				    *(chromosomeNeuronFitness + i*speciesN + j) = current_fitness;
+			    }
+            }
+    // сравнение сетей L2 с сетью L1
+
+	// Рекомбинация
+            //сортировка нейронов сабпопуляций по нормализованной приспособленности
+            for (int i = 0; i < subpopulationsN; i++)
+            {
+                vp.clear();
+                // сохраняем нормализованный fitness с индексом после сортировки
+                for (int i = 0; i < speciesN; ++i)
+                {
+                    //добавить нормализацию fitness'а!!!!
+                    vp.push_back(make_pair(chromosomeNeuronFitness[i]/10, i));
+                }
+                sort(vp.begin(), vp.end());
+
+                // скрещивание 
+                for (int j = 0; j < speciesN / 4; j++)
+                {
+                    int rj = rand() % speciesN;
+                    crossover(chromosomeWeights, i, j,rj,j*2,j*2+1);
+                }
+
+                // мутация 
+                for (int j = speciesN / 2; j < speciesN; j++)
+                {
+                    mutate(chromosomeWeights, i, j);
+                }
+            }
     }
-
-
-}
-
-
-
 }
 
 
